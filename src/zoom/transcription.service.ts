@@ -22,10 +22,19 @@ export interface TranscriptSegment {
 export class TranscriptionService {
   private readonly logger = new Logger(TranscriptionService.name);
   private readonly uploadDir = path.join(process.cwd(), 'uploads', 'zoom');
-  private readonly openai: OpenAI;
+  private _openai: OpenAI | null = null;
+
+  private get openai(): OpenAI {
+    if (!this._openai) {
+      if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OPENAI_API_KEY environment variable is not set.');
+      }
+      this._openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+    return this._openai;
+  }
 
   constructor(private readonly prisma: PrismaService) {
-    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     fs.mkdirSync(this.uploadDir, { recursive: true });
   }
 
