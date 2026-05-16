@@ -1,0 +1,912 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+enum Role {
+  ADMIN
+  DEPARTMENT_HEAD
+  EMPLOYEE
+  FOREIGN_COMPANY
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+model user {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  role          Role      @default(EMPLOYEE)
+  position      String?
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  departmentId  String?
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  headOfDepartment Department? @relation("DepartmentHead")
+
+  sessions      session[]
+  accounts      account[]
+
+  assignedTasks    Task[]         @relation("TaskAssignee")
+  projectMembers   ProjectMember[]
+  activityLogs     ActivityLog[]
+  notes            Note[]
+
+  knowledgeDocs    KnowledgeDoc[]    @relation("KnowledgeDocAuthor")
+  aiChatMessages   AiChatMessage[]
+  aiActivityLogs   AiActivityLog[]
+  agentAccess      AgentAccess[]
+  toolAccess       ToolAccess[]
+  ownedApiKeys     ApiKey[]          @relation("ApiKeyAuthor")
+  apiKeyAccess     ApiKeyAccess[]
+  userAgentAccess  UserAgentAccess[]
+  userAppAccess    UserAppAccess[]
+  taskComments     TaskComment[]
+  notifications    Notification[]
+  newsAgentConfig  NewsAgentConfig?
+
+  foreignCompanyId String?
+  foreignCompany   ForeignCompany? @relation(fields: [foreignCompanyId], references: [id])
+
+  // ── Chat relations ──────────────────────────────────────────
+  createdChannels      ChatChannel[]         @relation("ChannelCreator")
+  channelMemberships   ChatChannelMember[]
+  sentMessages         ChatMessage[]         @relation("MessageSender")
+  chatReactions        ChatReaction[]
+  chatAttachments      ChatAttachment[]
+  pinnedMessages       ChatPinnedMessage[]   @relation("PinnedBy")
+  chatBookmarks        ChatBookmark[]
+  userPresence         UserPresence?
+  userChatStatus       UserChatStatus?
+  chatPollVotes        ChatPollVote[]
+  chatReminders        ChatReminder[]
+  chatGroupMemberships ChatUserGroupMember[]
+  chatAuditLogs        ChatAuditLog[]
+
+  // ─── Zoom Meetings ────────────────────────────────────────────
+  hostedMeetings       ZoomMeeting[]
+}
+
+
+model session {
+  id        String   @id @default(cuid())
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model account {
+  id                    String    @id @default(cuid())
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+}
+
+model verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  headId    String? @unique
+  head      user?   @relation("DepartmentHead", fields: [headId], references: [id])
+
+  employees user[]
+  projects  Project[]
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(PLANNING)
+  priority    Priority      @default(MEDIUM)
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  tasks   Task[]
+  members ProjectMember[]
+  milestones ProjectMilestone[]
+  foreignCompanyProjects ForeignCompanyProject[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  role      String   @default("MEMBER")
+  createdAt DateTime @default(now())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+}
+
+model Task {
+  id             String     @id @default(cuid())
+  title          String
+  description    String?    @db.Text
+  status         TaskStatus @default(TODO)
+  priority       Priority   @default(MEDIUM)
+  dueDate        DateTime?
+  order          Int        @default(0)
+  estimatedHours Float?
+  actualHours    Float?
+  labels         String[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  assigneeId String?
+  assignee   user?   @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  parentTaskId String?
+  parentTask   Task?   @relation("Subtasks", fields: [parentTaskId], references: [id])
+  subtasks     Task[]  @relation("Subtasks")
+
+  comments TaskComment[]
+}
+
+model ForeignCompany {
+  id           String   @id @default(cuid())
+  name         String   @unique
+  contactEmail String
+  country      String
+  website      String?
+  phone        String?
+  description  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  contacts user[]
+  projects ForeignCompanyProject[]
+}
+
+model ForeignCompanyProject {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  foreignCompanyId String
+  foreignCompany   ForeignCompany @relation(fields: [foreignCompanyId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([foreignCompanyId, projectId])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id])
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  color     String   @default("#ffffff")
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Knowledge Base ───────────────────────────────────────────────────
+model KnowledgeDoc {
+  id                 String   @id @default(cuid())
+  title              String
+  category           String   @default("General")
+  content            String
+  fileUrl            String?
+  visibleTo          Role[]
+  pinned             Boolean  @default(false)
+  // File intelligence fields
+  cloudinaryUrl      String?
+  cloudinaryPublicId String?
+  fileType           String?  // pdf | audio | video | image | docx | text
+  processingStatus   String   @default("READY") // READY | PROCESSING | FAILED
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  createdById String
+  createdBy   user            @relation("KnowledgeDocAuthor", fields: [createdById], references: [id])
+  chunks      KnowledgeChunk[]
+}
+
+model KnowledgeChunk {
+  id         String       @id @default(cuid())
+  docId      String
+  doc        KnowledgeDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  content    String
+  embedding  String       // JSON-serialised float[] from text-embedding-3-small
+  chunkIndex Int
+  createdAt  DateTime     @default(now())
+
+  @@index([docId])
+}
+
+
+model AiChatMessage {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  sources   Json?
+  // Cache fields
+  cacheKey  String?
+  docsUsed  Int      @default(0)
+  tasksUsed Int      @default(0)
+  notesUsed Int      @default(0)
+  createdAt DateTime @default(now())
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, cacheKey, createdAt])
+}
+
+// ─── AI Agents ────────────────────────────────────────────────────────
+enum AgentCategory {
+  HR
+  MARKETING
+  TECHNICAL
+  ANALYTICS
+  GENERAL
+}
+
+model Agent {
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  systemPrompt String
+  category     AgentCategory @default(GENERAL)
+  icon         String        @default("Bot")
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+
+  access AgentAccess[]
+}
+
+model AgentAccess {
+  id      String @id @default(cuid())
+  userId  String
+  agentId String
+  user    user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+}
+
+// ─── Tools ────────────────────────────────────────────────────────────
+enum ToolType {
+  SOCIAL_POST
+  CAROUSEL
+  PRESENTATION
+  EMAIL_DRAFTER
+  MEETING_SUMMARY
+}
+
+model Tool {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  type        ToolType
+  icon        String     @default("Wrench")
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  access ToolAccess[]
+}
+
+model ToolAccess {
+  id     String @id @default(cuid())
+  userId String
+  toolId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tool   Tool   @relation(fields: [toolId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, toolId])
+}
+
+// ─── API Keys ─────────────────────────────────────────────────────────
+enum ApiKeyProvider {
+  OPENAI
+  ANTHROPIC
+  GEMINI
+  CUSTOM
+}
+
+model ApiKey {
+  id          String         @id @default(cuid())
+  name        String
+  provider    ApiKeyProvider
+  keyHash     String
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+
+  createdById String
+  createdBy   user           @relation("ApiKeyAuthor", fields: [createdById], references: [id])
+  access      ApiKeyAccess[]
+}
+
+model ApiKeyAccess {
+  id           String   @id @default(cuid())
+  monthlyLimit Int      @default(100000)
+  usedTokens   Int      @default(0)
+  resetAt      DateTime @default(now())
+
+  userId   String
+  apiKeyId String
+  user     user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey   ApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, apiKeyId])
+}
+
+// --- Config-based access (string IDs from agents-config / apps-config) -------
+model UserAgentAccess {
+  id      String @id @default(cuid())
+  userId  String
+  agentId String
+  user    user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentId])
+}
+
+model UserAppAccess {
+  id     String @id @default(cuid())
+  userId String
+  appId  String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, appId])
+}
+
+// --- AI Activity Log --------------------------------------------------------
+model AiActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // 'AGENT_CHAT' | 'APP_RUN'
+  agentId   String?  // config id e.g. 'hr-assistant'
+  appId     String?  // config id e.g. 'social-post-generator'
+  input     String   @db.Text
+  output    String   @db.Text
+  createdAt DateTime @default(now())
+  user      user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// --- Advanced Project Management ---
+model TaskComment {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProjectMilestone {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  dueDate     DateTime?
+  completed   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+// --- Notifications ---
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId String
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+// --- News Agent -----------------------------------------------------------------
+model NewsAgentConfig {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled      Boolean  @default(false)
+  deliveryHour Int      @default(8)
+  deliveryMin  Int      @default(0)
+  topics       String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  summaries NewsSummary[]
+}
+
+model NewsSummary {
+  id        String   @id @default(cuid())
+  userId    String
+  topics    String[]
+  content   String   @db.Text
+  sources   String?  @db.Text  // JSON array of {title, url, source} objects
+  createdAt DateTime @default(now())
+
+  configId String
+  config   NewsAgentConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════
+// ─── MESSAGING SYSTEM ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+enum ChatChannelType {
+  PUBLIC
+  PRIVATE
+  DM
+  GROUP_DM
+}
+
+enum PresenceStatus {
+  ONLINE
+  AWAY
+  OFFLINE
+}
+
+enum ChatPollStatus {
+  OPEN
+  CLOSED
+}
+
+enum ChatAuditAction {
+  CHANNEL_CREATED
+  CHANNEL_ARCHIVED
+  CHANNEL_DELETED
+  MEMBER_ADDED
+  MEMBER_REMOVED
+  MEMBER_ROLE_CHANGED
+  MESSAGE_DELETED
+  MESSAGE_PINNED
+  MESSAGE_UNPINNED
+  RETENTION_POLICY_SET
+  USER_GROUP_CREATED
+  USER_GROUP_DELETED
+  WORKFLOW_TRIGGERED
+}
+
+
+model ChatChannel {
+  id            String          @id @default(cuid())
+  name          String
+  slug          String          @unique
+  description   String?
+  type          ChatChannelType @default(PUBLIC)
+  isArchived    Boolean         @default(false)
+  topic         String?
+  isShared      Boolean         @default(false)
+  retentionDays Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  createdById String
+  createdBy   user   @relation("ChannelCreator", fields: [createdById], references: [id])
+
+  members        ChatChannelMember[]
+  messages       ChatMessage[]
+  pinnedMessages ChatPinnedMessage[]
+  polls          ChatPoll[]
+  workflows      ChatWorkflow[]
+
+  @@index([type, isArchived])
+}
+
+model ChatChannelMember {
+  id             String   @id @default(cuid())
+  role           String   @default("MEMBER")
+  lastReadAt     DateTime @default(now())
+  notifyMentions Boolean  @default(true)
+  muteUntil      DateTime?
+  joinedAt       DateTime @default(now())
+
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      user        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
+  @@index([channelId])
+}
+
+model ChatMessage {
+  id          String   @id @default(cuid())
+  content     String   @db.Text
+  contentJson String?  @db.Text
+  isEdited    Boolean  @default(false)
+  editHistory String?  @db.Text
+  isDeleted   Boolean  @default(false)
+  isPinned    Boolean  @default(false)
+  isScheduled Boolean  @default(false)
+  scheduledAt DateTime?
+  replyCount  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  channelId String
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    user        @relation("MessageSender", fields: [senderId], references: [id])
+
+  parentId String?
+  parent   ChatMessage?  @relation("ThreadReplies", fields: [parentId], references: [id])
+  replies  ChatMessage[] @relation("ThreadReplies")
+
+  reactions    ChatReaction[]
+  attachments  ChatAttachment[]
+  bookmarks    ChatBookmark[]
+  pinnedRecord ChatPinnedMessage?
+  reminders    ChatReminder[]
+
+  @@index([channelId, createdAt])
+  @@index([senderId])
+  @@index([parentId])
+  @@index([isScheduled, scheduledAt])
+}
+
+model ChatReaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  createdAt DateTime @default(now())
+
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      user        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+model ChatAttachment {
+  id           String   @id @default(cuid())
+  fileName     String
+  fileUrl      String
+  fileType     String
+  fileSize     Int
+  cloudinaryId String?
+  createdAt    DateTime @default(now())
+
+  messageId    String
+  message      ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadedById String
+  uploadedBy   user        @relation(fields: [uploadedById], references: [id])
+}
+
+model ChatPinnedMessage {
+  id       String   @id @default(cuid())
+  pinnedAt DateTime @default(now())
+
+  channelId  String
+  channel    ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  messageId  String      @unique
+  message    ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinnedById String
+  pinnedBy   user        @relation("PinnedBy", fields: [pinnedById], references: [id])
+
+  @@index([channelId])
+}
+
+model ChatBookmark {
+  id        String   @id @default(cuid())
+  note      String?
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      user        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId])
+}
+
+model UserPresence {
+  id        String         @id @default(cuid())
+  status    PresenceStatus @default(OFFLINE)
+  lastSeen  DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  userId String @unique
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserChatStatus {
+  id        String    @id @default(cuid())
+  emoji     String?
+  text      String?
+  expiresAt DateTime?
+  dndUntil  DateTime?
+  updatedAt DateTime  @updatedAt
+
+  userId String @unique
+  user   user   @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ChatPoll {
+  id          String         @id @default(cuid())
+  question    String
+  options     String[]
+  status      ChatPollStatus @default(OPEN)
+  endsAt      DateTime?
+  anonymous   Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  createdById String
+
+  channelId String
+  channel   ChatChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  votes     ChatPollVote[]
+
+  @@index([channelId])
+}
+
+model ChatPollVote {
+  id          String   @id @default(cuid())
+  optionIndex Int
+  createdAt   DateTime @default(now())
+
+  pollId String
+  poll   ChatPoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  userId String
+  user   user     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+}
+
+model ChatReminder {
+  id        String   @id @default(cuid())
+  note      String?
+  remindAt  DateTime
+  sent      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId    String
+  user      user         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId String?
+  message   ChatMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([userId, remindAt, sent])
+}
+
+model ChatUserGroup {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  handle      String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members ChatUserGroupMember[]
+}
+
+model ChatUserGroupMember {
+  id      String @id @default(cuid())
+
+  groupId String
+  group   ChatUserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId  String
+  user    user          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model ChatWorkflow {
+  id          String   @id @default(cuid())
+  name        String
+  trigger     String
+  actions     String   @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String
+  channelId   String?
+  channel     ChatChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, isActive])
+}
+
+model ChatAuditLog {
+  id         String          @id @default(cuid())
+  action     ChatAuditAction
+  entityType String
+  entityId   String?
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  actorId String
+  actor   user   @relation(fields: [actorId], references: [id])
+
+  @@index([actorId, createdAt])
+}
+
+// ─── Zoom Meetings ───────────────────────────────────────────────────────────
+
+enum MeetingStatus {
+  SCHEDULED
+  IN_PROGRESS
+  ENDED
+  CANCELLED
+}
+
+enum TranscriptStatus {
+  PENDING
+  UPLOADING
+  EXTRACTING
+  TRANSCRIBING
+  DONE
+  FAILED
+}
+
+model ZoomMeeting {
+  id            String        @id @default(cuid())
+  zoomMeetingId String?       @unique
+  title         String
+  agenda        String?
+  startTime     DateTime
+  duration      Int
+  joinUrl       String?
+  startUrl      String?
+  password      String?
+  status        MeetingStatus @default(SCHEDULED)
+  isInstant     Boolean       @default(false)
+  participants  String[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  hostId        String
+  host          user          @relation(fields: [hostId], references: [id])
+
+  audioFile     ZoomAudioFile?
+  transcript    ZoomTranscript?
+  aiSummary     ZoomAiSummary?
+  tasks         ZoomTask[]
+
+  @@index([hostId, startTime])
+}
+
+model ZoomAudioFile {
+  id           String           @id @default(cuid())
+  originalName String
+  filePath     String
+  audioPath    String?
+  fileSize     Int
+  mimeType     String
+  status       TranscriptStatus @default(PENDING)
+  errorMsg     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  meetingId    String           @unique
+  meeting      ZoomMeeting      @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model ZoomTranscript {
+  id        String   @id @default(cuid())
+  segments  String   @db.Text
+  fullText  String   @db.Text
+  language  String   @default("en")
+  duration  Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  meetingId String      @unique
+  meeting   ZoomMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model ZoomAiSummary {
+  id          String   @id @default(cuid())
+  summary     String   @db.Text
+  actionItems String   @db.Text
+  decisions   String   @db.Text
+  sentiment   String
+  keyTopics   String[]
+  createdAt   DateTime @default(now())
+
+  meetingId   String      @unique
+  meeting     ZoomMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
+
+model ZoomTask {
+  id        String    @id @default(cuid())
+  title     String
+  owner     String?
+  deadline  DateTime?
+  done      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  meetingId String
+  meeting   ZoomMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+}
